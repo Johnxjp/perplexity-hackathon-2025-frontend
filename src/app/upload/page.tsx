@@ -2,8 +2,10 @@
 
 import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 const BACKEND_URL = "http://localhost:8000";
+const SUPABASE_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_BUCKET || "dev";
 
 export default function UploadPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -23,19 +25,93 @@ export default function UploadPage() {
     }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleFileSelect(file);
+  const uploadFileToSupabase = async (file: File) => {
+    setIsSubmitting(true);
+
+    try {
+      // Upload file to Supabase storage (upsert to replace if exists)
+      const { data, error } = await supabase.storage
+        .from(SUPABASE_BUCKET)
+        .upload(file.name, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (error) {
+        console.error("Supabase upload error:", error);
+        throw new Error(`Supabase upload failed: ${error.message}`);
+      }
+
+      // Get the public URL for the uploaded file
+      const { data: { publicUrl } } = supabase.storage
+        .from(SUPABASE_BUCKET)
+        .getPublicUrl(file.name);
+
+      console.log("File uploaded to Supabase:", publicUrl);
+
+      // Try to send to backend, fallback to mock data if backend is unavailable
+      try {
+        const response = await fetch(`${BACKEND_URL}/upload/file`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            file_path: publicUrl,
+            title: title || "Untitled",
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Backend unavailable");
+        }
+
+        const backendData = await response.json();
+        console.log("Backend response:", backendData);
+
+        // Navigate to project editor using project_id from backend
+        const projectId = backendData.project_id || "123";
+        router.push(`/project/${projectId}`);
+      } catch (backendError) {
+        console.log("Backend unavailable, using mock data");
+        // Navigate to mock project page
+        router.push("/project/123");
+      }
+    } catch (error) {
+      console.error("Error uploading file:", error);
+      alert(`Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.type === "video/mp4") {
+        setSelectedFile(file);
+        setYoutubeUrl("");
+        // Automatically upload the file
+        await uploadFileToSupabase(file);
+      } else {
+        alert("Please select an MP4 file");
+      }
+    }
+  };
+
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (file) {
-      handleFileSelect(file);
+      if (file.type === "video/mp4") {
+        setSelectedFile(file);
+        setYoutubeUrl("");
+        // Automatically upload the file
+        await uploadFileToSupabase(file);
+      } else {
+        alert("Please select an MP4 file");
+      }
     }
   };
 
@@ -60,20 +136,34 @@ export default function UploadPage() {
 
     setIsSubmitting(true);
     try {
-      // Load dummy transcript data
-      const transcriptResponse = await fetch("/yt_video_t.json");
-      const transcriptData = await transcriptResponse.json();
+      // Try to send to backend, fallback to mock data if backend is unavailable
+      try {
+        const response = await fetch(`${BACKEND_URL}/upload/youtube`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            youtube_url: youtubeUrl,
+            title: title || "Untitled",
+          }),
+        });
 
-      // Create dummy response matching backend format
-      const dummyResponse = {
-        video_url: "/yt_video.mp4",
-        transcripts: transcriptData
-      };
+        if (!response.ok) {
+          throw new Error("Backend unavailable");
+        }
 
-      console.log("YouTube URL submitted successfully:", dummyResponse);
+        const backendData = await response.json();
+        console.log("Backend response:", backendData);
 
-      // Navigate to project editor page with ID 123
-      router.push("/project/123");
+        // Navigate to project editor using project_id from backend
+        const projectId = backendData.project_id || "123";
+        router.push(`/project/${projectId}`);
+      } catch (backendError) {
+        console.log("Backend unavailable, using mock data");
+        // Navigate to mock project page
+        router.push("/project/123");
+      }
     } catch (error) {
       console.error("Error submitting YouTube URL:", error);
       alert("Failed to submit YouTube URL. Please try again.");
@@ -102,15 +192,15 @@ export default function UploadPage() {
 
         {/* File Upload Box */}
         <div
-          onClick={handleBoxClick}
+          onClick={!isSubmitting ? handleBoxClick : undefined}
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
-          className={`border-2 border-dashed rounded-2xl p-20 text-center cursor-pointer transition-all mb-6 bg-white ${
+          className={`border-2 border-dashed rounded-2xl p-20 text-center transition-all mb-6 bg-white ${
             isDragging
               ? "border-gray-400"
               : "border-gray-200 hover:border-gray-300"
-          }`}
+          } ${isSubmitting ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
         >
           <input
             ref={fileInputRef}
@@ -141,7 +231,16 @@ export default function UploadPage() {
               </div>
             </div>
 
-            {selectedFile ? (
+            {isSubmitting ? (
+              <div>
+                <p className="text-base font-semibold text-gray-900">
+                  Uploading...
+                </p>
+                <p className="text-sm text-gray-500 mt-1">
+                  Please wait while your file is being uploaded
+                </p>
+              </div>
+            ) : selectedFile ? (
               <div>
                 <p className="text-base font-semibold text-gray-900">
                   {selectedFile.name}
