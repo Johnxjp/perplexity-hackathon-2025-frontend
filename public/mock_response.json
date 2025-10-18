@@ -1,11 +1,12 @@
 {
     "project_id": "123",
+    "title": "A Heartbreaking Love Letter",
     "video_path": "https://iyvkdwkdzcridtiioofc.supabase.co/storage/v1/object/public/perplexed/YTDown.com_YouTube_A-Heartbreaking-Love-Letter_Media_pCJ_lC_AcUU_005_240p.mp4",
     "transcript": [
         [
             0.24,
             4.88,
-            "Have you ever read Richard Feman's love"
+            "Have you ever read Richard Feynman's love"
         ],
         [
             2.32,
@@ -1558,19 +1559,29 @@
             "text": "Richard Feynman",
             "url": "https://en.wikipedia.org/wiki/Richard_Feynman",
             "image_url": "https://en.wikipedia.org/wiki/Richard_Feynman#/media/File:Richard_Feynman_Nobel.jpg",
-            "type": "people"
+            "type": "people",
+            "timestamps": [
+                0.46
+            ]
         },
         {
             "text": "The pleasure of finding things out",
             "url": "https://www.amazon.co.uk/Pleasure-Finding-Things-Out/dp/0141031433",
             "image_url": "https://m.media-amazon.com/images/I/71mSIBEKOnL._SY522_.jpg",
-            "type": "book"
+            "type": "book",
+            "timestamps": [
+                5.12
+            ]
         },
         {
             "text": "Function Health",
             "url": "https://functionhealth.com",
             "image_url": "https://functionhealth.com/wp-content/uploads/2023/01",
-            "type": "organisation"
+            "type": "organisation",
+            "timestamps": [
+                688,
+                734
+            ]
         }
     ]
 }

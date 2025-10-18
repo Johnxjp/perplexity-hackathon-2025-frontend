@@ -19,6 +19,7 @@ type ShowNote = {
   url: string;
   image_url: string;
   type: ShowNoteType;
+  timestamps?: number[];
 };
 
 type ProjectData = {
@@ -26,6 +27,8 @@ type ProjectData = {
   video_path: string;
   transcript: TranscriptSegment[] | TranscriptArray[];
   show_notes: ShowNote[];
+  title: string;
+  timestamps: number[];
 };
 
 interface ProjectPageProps {
@@ -97,7 +100,7 @@ export default function ProjectPage({ params }: ProjectPageProps) {
         setVideoUrl(finalVideoUrl);
         setTranscript(normalizedTranscript);
         setShowNotes(data.show_notes);
-        setTitle("Untitled");
+        setTitle(data.title);
       } catch (error) {
         console.error("Error loading project:", error);
       } finally {
@@ -113,6 +116,17 @@ export default function ProjectPage({ params }: ProjectPageProps) {
       videoRef.current.currentTime = startTime;
       videoRef.current.play();
     }
+  };
+
+  const formatTimestamp = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+
+    if (hours > 0) {
+      return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+    return `${minutes}:${String(secs).padStart(2, '0')}`;
   };
 
   // Normalize show note types (handle "people" -> "person" mapping)
@@ -189,18 +203,36 @@ export default function ProjectPage({ params }: ProjectPageProps) {
                     <ul className="space-y-2">
                       {notes.map((note, index) => (
                         <li key={index} className="text-sm text-gray-900">
-                          {note.url ? (
-                            <a
-                              href={note.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:text-blue-800 hover:underline"
-                            >
-                              {note.text}
-                            </a>
-                          ) : (
-                            <span>{note.text}</span>
-                          )}
+                          <div className="flex items-start gap-2">
+                            <div className="flex-1">
+                              {note.url ? (
+                                <a
+                                  href={note.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:text-blue-800 hover:underline"
+                                >
+                                  {note.text}
+                                </a>
+                              ) : (
+                                <span>{note.text}</span>
+                              )}
+                            </div>
+                            {note.timestamps && note.timestamps.length > 0 && (
+                              <div className="flex gap-1 flex-wrap">
+                                {note.timestamps.map((timestamp, tsIndex) => (
+                                  <button
+                                    key={tsIndex}
+                                    onClick={() => handleTranscriptClick(timestamp)}
+                                    className="text-xs text-gray-600 hover:text-blue-600 hover:underline cursor-pointer px-1 py-0.5 rounded hover:bg-gray-100"
+                                    title={`Jump to ${formatTimestamp(timestamp)}`}
+                                  >
+                                    [{formatTimestamp(timestamp)}]
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
                         </li>
                       ))}
                     </ul>
