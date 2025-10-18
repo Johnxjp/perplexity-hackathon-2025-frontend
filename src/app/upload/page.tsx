@@ -7,14 +7,56 @@ import { supabase } from "@/lib/supabase";
 const BACKEND_URL = "http://localhost:8000";
 const SUPABASE_BUCKET = process.env.NEXT_PUBLIC_SUPABASE_BUCKET || "dev";
 
+type ProcessingStep = {
+  message: string;
+  minDuration: number; // in milliseconds
+  maxDuration: number;
+};
+
+const PROCESSING_STEPS: ProcessingStep[] = [
+  { message: "Uploading Video", minDuration: 5000, maxDuration: 10000 },
+  { message: "Chunking Video", minDuration: 2000, maxDuration: 4000 },
+  { message: "Transcribing Chunks", minDuration: 2000, maxDuration: 4000 },
+  { message: "Searching for References", minDuration: 2000, maxDuration: 4000 },
+  { message: "Hyperlinking References", minDuration: 2000, maxDuration: 4000 },
+  { message: "Creating New Video", minDuration: 2000, maxDuration: 4000 },
+  { message: "Readying", minDuration: 0, maxDuration: 0 }, // Holds until ready
+];
+
 export default function UploadPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [title, setTitle] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [currentStep, setCurrentStep] = useState(0);
+  const [isProcessing, setIsProcessing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
+
+  const getRandomDuration = (min: number, max: number): number => {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  };
+
+  const runProcessingSequence = async (onComplete: () => void) => {
+    setIsProcessing(true);
+    setCurrentStep(0);
+
+    for (let i = 0; i < PROCESSING_STEPS.length - 1; i++) {
+      setCurrentStep(i);
+      const step = PROCESSING_STEPS[i];
+      const duration = getRandomDuration(step.minDuration, step.maxDuration);
+      await new Promise(resolve => setTimeout(resolve, duration));
+    }
+
+    // Move to "Readying" step
+    setCurrentStep(PROCESSING_STEPS.length - 1);
+
+    // Wait for completion callback
+    await onComplete();
+
+    setIsProcessing(false);
+  };
 
   const handleFileSelect = (file: File) => {
     if (file && file.type === "video/mp4") {
@@ -29,57 +71,61 @@ export default function UploadPage() {
     setIsSubmitting(true);
 
     try {
-      // Upload file to Supabase storage (upsert to replace if exists)
-      const { data, error } = await supabase.storage
-        .from(SUPABASE_BUCKET)
-        .upload(file.name, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
+      // Start processing sequence
+      await runProcessingSequence(async () => {
+        // Upload file to Supabase storage (upsert to replace if exists)
+        const { data, error } = await supabase.storage
+          .from(SUPABASE_BUCKET)
+          .upload(file.name, file, {
+            cacheControl: '3600',
+            upsert: true
+          });
 
-      if (error) {
-        console.error("Supabase upload error:", error);
-        throw new Error(`Supabase upload failed: ${error.message}`);
-      }
-
-      // Get the public URL for the uploaded file
-      const { data: { publicUrl } } = supabase.storage
-        .from(SUPABASE_BUCKET)
-        .getPublicUrl(file.name);
-
-      console.log("File uploaded to Supabase:", publicUrl);
-
-      // Try to send to backend, fallback to mock data if backend is unavailable
-      try {
-        const response = await fetch(`${BACKEND_URL}/upload/file`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            file_path: publicUrl,
-            title: title || "Untitled",
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error("Backend unavailable");
+        if (error) {
+          console.error("Supabase upload error:", error);
+          throw new Error(`Supabase upload failed: ${error.message}`);
         }
 
-        const backendData = await response.json();
-        console.log("Backend response:", backendData);
+        // Get the public URL for the uploaded file
+        const { data: { publicUrl } } = supabase.storage
+          .from(SUPABASE_BUCKET)
+          .getPublicUrl(file.name);
 
-        // Navigate to project editor using project_id from backend
-        const projectId = backendData.project_id || "123";
-        router.push(`/project/${projectId}`);
-      } catch (backendError) {
-        console.log("Backend unavailable, using mock data");
-        // Navigate to mock project page
-        router.push("/project/123");
-      }
+        console.log("File uploaded to Supabase:", publicUrl);
+
+        // Try to send to backend, fallback to mock data if backend is unavailable
+        try {
+          const response = await fetch(`${BACKEND_URL}/upload/file`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              file_path: publicUrl,
+              title: title || "Untitled",
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error("Backend unavailable");
+          }
+
+          const backendData = await response.json();
+          console.log("Backend response:", backendData);
+
+          // Navigate to project editor using project_id from backend
+          const projectId = backendData.project_id || "123";
+          router.push(`/project/${projectId}`);
+        } catch (backendError) {
+          console.log("Backend unavailable, using mock data");
+          // Navigate to mock project page
+          router.push("/project/123");
+        }
+      });
     } catch (error) {
       console.error("Error uploading file:", error);
       alert(`Failed to upload file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setIsProcessing(false);
     } finally {
       setIsSubmitting(false);
     }
@@ -136,37 +182,41 @@ export default function UploadPage() {
 
     setIsSubmitting(true);
     try {
-      // Try to send to backend, fallback to mock data if backend is unavailable
-      try {
-        const response = await fetch(`${BACKEND_URL}/upload/youtube`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            youtube_url: youtubeUrl,
-            title: title || "Untitled",
-          }),
-        });
+      // Start processing sequence
+      await runProcessingSequence(async () => {
+        // Try to send to backend, fallback to mock data if backend is unavailable
+        try {
+          const response = await fetch(`${BACKEND_URL}/upload/youtube`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              youtube_url: youtubeUrl,
+              title: title || "Untitled",
+            }),
+          });
 
-        if (!response.ok) {
-          throw new Error("Backend unavailable");
+          if (!response.ok) {
+            throw new Error("Backend unavailable");
+          }
+
+          const backendData = await response.json();
+          console.log("Backend response:", backendData);
+
+          // Navigate to project editor using project_id from backend
+          const projectId = backendData.project_id || "123";
+          router.push(`/project/${projectId}`);
+        } catch (backendError) {
+          console.log("Backend unavailable, using mock data");
+          // Navigate to mock project page
+          router.push("/project/123");
         }
-
-        const backendData = await response.json();
-        console.log("Backend response:", backendData);
-
-        // Navigate to project editor using project_id from backend
-        const projectId = backendData.project_id || "123";
-        router.push(`/project/${projectId}`);
-      } catch (backendError) {
-        console.log("Backend unavailable, using mock data");
-        // Navigate to mock project page
-        router.push("/project/123");
-      }
+      });
     } catch (error) {
       console.error("Error submitting YouTube URL:", error);
       alert("Failed to submit YouTube URL. Please try again.");
+      setIsProcessing(false);
     } finally {
       setIsSubmitting(false);
     }
@@ -180,6 +230,48 @@ export default function UploadPage() {
 
   return (
     <div className="min-h-screen bg-white p-8">
+      {isProcessing && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4">
+            <div className="flex flex-col items-center">
+              {/* Progress Indicator */}
+              <div className="w-16 h-16 border-4 border-gray-200 border-t-gray-900 rounded-full animate-spin mb-6"></div>
+
+              {/* Current Step Message */}
+              <h2 className="text-2xl font-semibold text-gray-900 mb-4">
+                {PROCESSING_STEPS[currentStep].message}
+              </h2>
+
+              {/* Progress Steps */}
+              <div className="w-full space-y-2">
+                {PROCESSING_STEPS.map((step, index) => (
+                  <div key={index} className="flex items-center gap-3">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                      index < currentStep ? 'bg-green-500' :
+                      index === currentStep ? 'bg-gray-900' :
+                      'bg-gray-200'
+                    }`}>
+                      {index < currentStep ? (
+                        <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : index === currentStep ? (
+                        <div className="w-2 h-2 bg-white rounded-full"></div>
+                      ) : null}
+                    </div>
+                    <span className={`text-sm ${
+                      index <= currentStep ? 'text-gray-900 font-medium' : 'text-gray-400'
+                    }`}>
+                      {step.message}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-4xl mx-auto pt-8">
         {/* Title Input */}
         <input
